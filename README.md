@@ -26,7 +26,7 @@ Sobald das Beta-Release im GitHub-Repo vorhanden ist, kann die App über den
 Tap installiert werden:
 
 ```bash
-brew tap TobiasPol/rub-mensabar
+brew tap TobiasPol/rub-mensabar https://github.com/TobiasPol/rub-mensabar
 brew install --cask rub-mensabar
 open -a RUBMensaBar
 ```
