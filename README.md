@@ -7,8 +7,8 @@ Die App zeigt aktuell die Speisepläne für:
 - Q-West
 - Rote Bete
 
-Status: **Beta**. Die App ist noch nicht notarisiert und kann sich während der
-Beta ändern.
+Die App ist mit einer Apple Developer ID signiert und von Apple notarisiert.
+Sie läuft als Universal Binary auf Apple Silicon und Intel-Macs.
 
 ## Features
 
@@ -22,8 +22,7 @@ Beta ändern.
 
 ## Installation mit Homebrew
 
-Sobald das Beta-Release im GitHub-Repo vorhanden ist, kann die App über den
-Tap installiert werden:
+Die App kann über den Tap installiert werden:
 
 ```bash
 brew tap TobiasPol/rub-mensabar https://github.com/TobiasPol/rub-mensabar
@@ -52,16 +51,22 @@ brew untap TobiasPol/rub-mensabar
 ## Manuelle Installation auf einem MacBook
 
 1. Öffne die [GitHub Releases](https://github.com/TobiasPol/rub-mensabar/releases).
-2. Lade das aktuelle Beta-Zip herunter, zum Beispiel
-   `RUBMensaBar-v0.1.0-beta.1.zip`.
+2. Lade das aktuelle Zip herunter, zum Beispiel `RUBMensaBar-v0.2.0.zip`.
 3. Entpacke die Datei.
 4. Ziehe `RUBMensaBar.app` in den Programme-Ordner.
 5. Starte die App über Finder oder Spotlight.
 
-Da die Beta aktuell ad-hoc signiert und nicht notarisiert ist, kann macOS beim
-ersten Start eine Sicherheitsmeldung anzeigen. Öffne die App dann per Rechtsklick
-auf `RUBMensaBar.app` und wähle `Öffnen`, oder erlaube den Start in
-`Systemeinstellungen -> Datenschutz & Sicherheit`.
+Releases ab v0.2.0 sind notarisiert und starten ohne Gatekeeper-Warnung.
+Für ältere Beta-Builds (ad-hoc signiert) öffne die App per Rechtsklick auf
+`RUBMensaBar.app` → `Öffnen`.
+
+Die Echtheit eines Downloads lässt sich prüfen mit:
+
+```bash
+shasum -a 256 -c RUBMensaBar-v0.2.0.zip.sha256
+gh attestation verify RUBMensaBar-v0.2.0.zip --repo TobiasPol/rub-mensabar
+spctl --assess --type execute --verbose /Applications/RUBMensaBar.app
+```
 
 ## Nutzung
 
@@ -117,28 +122,25 @@ Lokaler Start:
 ./script/build_and_run.sh
 ```
 
-Beta-Paket bauen:
+Release-Paket lokal bauen (signiert automatisch mit der Developer ID aus dem
+Schlüsselbund, sofern vorhanden):
 
 ```bash
-./script/package_release.sh 0.1.0-beta.1
+./script/package_release.sh 0.2.0
 ```
 
-Das erzeugt `dist/RUBMensaBar-v0.1.0-beta.1.zip` und gibt den SHA256-Hash für
-die Homebrew-Cask-Datei aus.
+Das erzeugt `dist/RUBMensaBar-v0.2.0.zip` samt `.sha256`-Datei.
+
+Jeder Push und Pull Request läuft durch die CI
+([`.github/workflows/ci.yml`](.github/workflows/ci.yml)): Tests, Shell-Checks
+und ein ad-hoc signiertes Test-Paket als Build-Artefakt.
 
 ## Releases
 
-Release-Tags verwenden das Format `v<version>`, zum Beispiel:
-
-```text
-v0.1.0-beta.1
-```
-
-Jedes GitHub Release sollte enthalten:
-
-- `RUBMensaBar-v<version>.zip`
-- kurze Release Notes
-- Hinweis, dass es sich aktuell um eine Beta handelt
+Releases entstehen automatisch, wenn ein Tag `v<version>` gepusht wird: GitHub
+Actions baut, signiert, notarisiert und veröffentlicht die App und öffnet einen
+PR für das Homebrew-Cask. Einrichtung und Ablauf stehen in
+[`docs/RELEASING.md`](docs/RELEASING.md).
 
 ## Lizenz
 
