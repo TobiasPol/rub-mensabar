@@ -26,9 +26,15 @@ Die App kann über den Tap installiert werden:
 
 ```bash
 brew tap TobiasPol/rub-mensabar https://github.com/TobiasPol/rub-mensabar
+brew trust --cask tobiaspol/rub-mensabar/rub-mensabar
 brew install --cask rub-mensabar
 open -a RUBMensaBar
 ```
+
+Neuere Homebrew-Versionen laden Casks aus Drittanbieter-Taps erst nach einer
+ausdrücklichen Freigabe. `brew trust --cask` gibt nur dieses eine Cask frei,
+nicht den ganzen Tap. Meldet `brew` den Befehl als unbekannt, ist die
+Homebrew-Version älter und die Zeile kann entfallen.
 
 Nach dem Start erscheint ein kleines Besteck-Icon in der macOS-Menüleiste.
 Falls das Icon nicht direkt sichtbar ist, prüfe Menüleisten-Manager wie Ice,
@@ -45,6 +51,7 @@ Deinstallation:
 
 ```bash
 brew uninstall --cask rub-mensabar
+brew untrust --cask tobiaspol/rub-mensabar/rub-mensabar
 brew untap TobiasPol/rub-mensabar
 ```
 
