@@ -29,21 +29,30 @@ public protocol MensaPlanFetching {
 
 public final class MensaPlanService: MensaPlanFetching {
     private let session: URLSession
+    private let userAgent: String
 
     public init(
-        session: URLSession = .shared
+        session: URLSession = .shared,
+        userAgent: String = "RUBMensaBar"
     ) {
         self.session = session
+        self.userAgent = userAgent
+    }
+
+    public static func endpoint(canteenID: String) -> URL? {
+        var components = URLComponents(string: "https://akafoe.studylife.org/api/meal-plans/week/current")
+        components?.queryItems = [URLQueryItem(name: "canteen_id", value: canteenID)]
+        return components?.url
     }
 
     public func fetchCurrentWeek(canteenID: String) async throws -> MensaWeekPlan {
-        guard let endpoint = URL(string: "https://akafoe.studylife.org/api/meal-plans/week/current?canteen_id=\(canteenID)") else {
+        guard let endpoint = Self.endpoint(canteenID: canteenID) else {
             throw MensaPlanError.invalidURL
         }
 
         var request = URLRequest(url: endpoint, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 20)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("RUBMensaBar/1.0", forHTTPHeaderField: "User-Agent")
+        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
 
         let (data, response) = try await session.data(for: request)
 
@@ -188,9 +197,25 @@ private struct MealDTO: Decodable {
         case priceGuest = "price_guest"
         case category
     }
+
+    // Optional collections default to empty so one sparse meal can't make the
+    // whole week fail to decode.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        title = try container.decode(String.self, forKey: .title)
+        description = try container.decodeIfPresent(String.self, forKey: .description)
+        icons = try container.decodeIfPresent([String].self, forKey: .icons) ?? []
+        allergens = try container.decodeIfPresent([String].self, forKey: .allergens) ?? []
+        additives = try container.decodeIfPresent([String].self, forKey: .additives) ?? []
+        priceStudent = try container.decodeIfPresent(Double.self, forKey: .priceStudent)
+        priceEmployee = try container.decodeIfPresent(Double.self, forKey: .priceEmployee)
+        priceGuest = try container.decodeIfPresent(Double.self, forKey: .priceGuest)
+        category = try container.decodeIfPresent(CategoryDTO.self, forKey: .category)
+    }
 }
 
 private struct CategoryDTO: Decodable {
     let name: String
-    let priority: Int
+    let priority: Int?
 }

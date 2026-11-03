@@ -3,3 +3,19 @@
 dist/
 .DS_Store
 .codex/
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+
+# Signing material - never commit certificates or API keys
+*.p12
+*.p8
+*.cer
+*.certSigningRequest
+*.keychain-db
+
+# Claude local files
+.claude/settings.local.json
+CLAUDE.local.md
