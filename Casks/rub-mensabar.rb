@@ -1,6 +1,6 @@
 cask "rub-mensabar" do
-  version "0.1.0-beta.1"
-  sha256 "0e75389006a860f76ddb854205773f7f2a3e0900880a03fd76f7313ae0076e10"
+  version "0.2.0"
+  sha256 "8ab9d529e3ebe3ab6b2914da4226470c39b11709905ce72be05cc713902a4e9d"
 
   url "https://github.com/TobiasPol/rub-mensabar/releases/download/v#{version}/RUBMensaBar-v#{version}.zip"
   name "RUB MensaBar"
