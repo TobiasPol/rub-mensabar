@@ -14,6 +14,7 @@ final class MenuViewModel: ObservableObject {
 
     private let service: MensaPlanFetching
     private var autoRefreshTimer: Timer?
+    private var dayRolloverTimer: Timer?
     private var scheduledInterval: RefreshInterval?
     private var observers: [(NotificationCenter, NSObjectProtocol)] = []
     private var hasLoaded = false
@@ -29,8 +30,10 @@ final class MenuViewModel: ObservableObject {
             model.applyPreferenceChanges()
         }
         // A menu bar app stays running for days: jump to the new day (and the
-        // new week's plan) at midnight and after the Mac wakes from sleep.
-        observe(NotificationCenter.default, .NSCalendarDayChanged) { model in
+        // new week's plan) at Berlin midnight and after the Mac wakes from
+        // sleep. NSCalendarDayChanged follows the Mac's own time zone, so the
+        // rollover uses its own timer instead.
+        observe(NotificationCenter.default, .NSSystemClockDidChange) { model in
             model.handleClockChange(afterWake: false)
         }
         observe(NSWorkspace.shared.notificationCenter, NSWorkspace.didWakeNotification) { model in
@@ -38,10 +41,12 @@ final class MenuViewModel: ObservableObject {
         }
 
         scheduleAutoRefresh()
+        scheduleDayRollover()
     }
 
     deinit {
         autoRefreshTimer?.invalidate()
+        dayRolloverTimer?.invalidate()
         for (center, observer) in observers {
             center.removeObserver(observer)
         }
@@ -146,7 +151,28 @@ final class MenuViewModel: ObservableObject {
         return preferredDay(in: plan)?.id
     }
 
+    private func scheduleDayRollover() {
+        dayRolloverTimer?.invalidate()
+
+        let now = Date()
+        let today = Self.berlinCalendar.startOfDay(for: now)
+        guard let nextMidnight = Self.berlinCalendar.date(byAdding: .day, value: 1, to: today) else {
+            return
+        }
+
+        // Fire just after midnight so startOfDay is already the new day.
+        let timer = Timer(fire: nextMidnight.addingTimeInterval(1), interval: 0, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                self?.handleClockChange(afterWake: false)
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        dayRolloverTimer = timer
+    }
+
     private func handleClockChange(afterWake: Bool) {
+        scheduleDayRollover()
+
         let today = Self.berlinCalendar.startOfDay(for: Date())
         if today != lastKnownDay {
             lastKnownDay = today

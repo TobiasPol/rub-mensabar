@@ -125,7 +125,15 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch -c "$BRANCH"
           git commit -am "chore(cask): update rub-mensabar to v$VERSION"
-          git push --force-with-lease origin "$BRANCH"
+          # On a re-run the branch may already exist. checkout only maps main
+          # to a tracking ref, so pass the lease's expected tip explicitly
+          # (empty = branch must not exist yet).
+          REMOTE_TIP="$(git ls-remote origin "refs/heads/$BRANCH" | cut -f 1)"
+          git push --force-with-lease="refs/heads/$BRANCH:$REMOTE_TIP" origin "$BRANCH"
+          if [[ -n "$(gh pr list --head "$BRANCH" --state open --json number --jq '.[].number')" ]]; then
+            echo "Cask PR for v$VERSION is already open"
+            exit 0
+          fi
           gh pr create --base main --head "$BRANCH" \
             --title "chore(cask): update rub-mensabar to v$VERSION" \
             --body "Points the Homebrew cask at the notarized \`v$VERSION\` release (sha256 \`$SHA256\`)."
