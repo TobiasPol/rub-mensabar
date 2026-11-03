@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import RUBMensaBarCore
 
@@ -13,22 +14,27 @@ final class MenuViewModel: ObservableObject {
 
     private let service: MensaPlanFetching
     private var autoRefreshTimer: Timer?
-    private var defaultsObserver: NSObjectProtocol?
+    private var scheduledInterval: RefreshInterval?
+    private var observers: [(NotificationCenter, NSObjectProtocol)] = []
     private var hasLoaded = false
+    private var lastKnownDay: Date
 
     init(service: MensaPlanFetching? = nil) {
         AppPreferenceKeys.registerDefaults()
-        self.service = service ?? MensaPlanService()
+        self.service = service ?? MensaPlanService(userAgent: AppInfo.userAgent)
+        lastKnownDay = Self.berlinCalendar.startOfDay(for: Date())
         selectedCanteen = Self.preferredCanteenFromDefaults()
 
-        defaultsObserver = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                self?.applyPreferenceChanges()
-            }
+        observe(NotificationCenter.default, UserDefaults.didChangeNotification) { model in
+            model.applyPreferenceChanges()
+        }
+        // A menu bar app stays running for days: jump to the new day (and the
+        // new week's plan) at midnight and after the Mac wakes from sleep.
+        observe(NotificationCenter.default, .NSCalendarDayChanged) { model in
+            model.handleClockChange(afterWake: false)
+        }
+        observe(NSWorkspace.shared.notificationCenter, NSWorkspace.didWakeNotification) { model in
+            model.handleClockChange(afterWake: true)
         }
 
         scheduleAutoRefresh()
@@ -36,9 +42,23 @@ final class MenuViewModel: ObservableObject {
 
     deinit {
         autoRefreshTimer?.invalidate()
-        if let defaultsObserver {
-            NotificationCenter.default.removeObserver(defaultsObserver)
+        for (center, observer) in observers {
+            center.removeObserver(observer)
         }
+    }
+
+    private func observe(
+        _ center: NotificationCenter,
+        _ name: Notification.Name,
+        perform action: @escaping @MainActor (MenuViewModel) -> Void
+    ) {
+        let observer = center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                action(self)
+            }
+        }
+        observers.append((center, observer))
     }
 
     var selectedDay: MensaDay? {
@@ -65,18 +85,6 @@ final class MenuViewModel: ObservableObject {
 
     var showSourceLink: Bool {
         UserDefaults.standard.bool(forKey: AppPreferenceKeys.showSourceLink)
-    }
-
-    var weekTitle: String {
-        guard let plan else { return "Aktueller Wochenplan" }
-
-        return "KW \(plan.weekNumber) · \(Self.shortDateFormatter.string(from: plan.startDate))-\(Self.shortDateFormatter.string(from: plan.endDate))"
-    }
-
-    var lastUpdatedText: String {
-        guard let plan else { return "Noch nicht aktualisiert" }
-
-        return "Aktualisiert \(Self.timeFormatter.string(from: plan.fetchedAt))"
     }
 
     func loadIfNeeded() async {
@@ -130,53 +138,31 @@ final class MenuViewModel: ObservableObject {
         }
     }
 
-    func dayTitle(for day: MensaDay) -> String {
-        let weekday = Self.weekdayFormatter.string(from: day.date)
-        let date = Self.shortDateFormatter.string(from: day.date)
-        return "\(weekday) \(date)"
-    }
-
-    func priceText(for meal: MensaMeal) -> String {
-        let displayMode = PriceDisplayMode.normalized(UserDefaults.standard.string(forKey: AppPreferenceKeys.priceDisplayMode))
-
-        switch displayMode {
-        case .hidden:
-            return ""
-        case .student:
-            return formattedPrice(meal.studentPrice)
-        case .studentAndEmployee:
-            return [
-                formattedPrice(meal.studentPrice),
-                formattedPrice(meal.employeePrice)
-            ]
-            .filter { !$0.isEmpty }
-            .joined(separator: " / ")
-        case .all:
-            let prices = [
-                ("Stud.", meal.studentPrice),
-                ("MA", meal.employeePrice),
-                ("Gast", meal.guestPrice)
-            ]
-            .compactMap { label, price -> String? in
-                let formatted = formattedPrice(price)
-                return formatted.isEmpty ? nil : "\(label) \(formatted)"
-            }
-
-            return prices.joined(separator: " · ")
-        }
-    }
-
-    private func formattedPrice(_ price: Double?) -> String {
-        guard let price else { return "" }
-        return Self.currencyFormatter.string(from: NSNumber(value: price)) ?? ""
-    }
-
     private func selectedDayIDForFreshPlan(_ plan: MensaWeekPlan) -> String? {
         if let selectedDayID, plan.days.contains(where: { $0.id == selectedDayID }) {
             return selectedDayID
         }
 
         return preferredDay(in: plan)?.id
+    }
+
+    private func handleClockChange(afterWake: Bool) {
+        let today = Self.berlinCalendar.startOfDay(for: Date())
+        if today != lastKnownDay {
+            lastKnownDay = today
+            // Drop the old selection so the fresh plan opens on today.
+            selectedDayID = nil
+        }
+
+        guard hasLoaded else { return }
+
+        Task {
+            if afterWake {
+                // Give Wi-Fi a moment to reconnect before hitting the API.
+                try? await Task.sleep(for: .seconds(5))
+            }
+            await refresh(silent: true)
+        }
     }
 
     private func applyPreferenceChanges() {
@@ -199,11 +185,18 @@ final class MenuViewModel: ObservableObject {
     }
 
     private func scheduleAutoRefresh() {
+        let rawInterval = UserDefaults.standard.integer(forKey: AppPreferenceKeys.refreshIntervalMinutes)
+        let interval = RefreshInterval.normalized(rawInterval)
+
+        // didChangeNotification fires for every defaults write in the process
+        // (including AppKit's own), so only restart the timer on a real change.
+        guard interval != scheduledInterval else { return }
+        scheduledInterval = interval
+
         autoRefreshTimer?.invalidate()
         autoRefreshTimer = nil
 
-        let rawInterval = UserDefaults.standard.integer(forKey: AppPreferenceKeys.refreshIntervalMinutes)
-        guard let seconds = RefreshInterval.normalized(rawInterval).seconds else {
+        guard let seconds = interval.seconds else {
             return
         }
 
@@ -238,39 +231,5 @@ final class MenuViewModel: ObservableObject {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "Europe/Berlin") ?? .current
         return calendar
-    }()
-
-    private static let weekdayFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "de_DE")
-        formatter.timeZone = TimeZone(identifier: "Europe/Berlin")
-        formatter.dateFormat = "E"
-        return formatter
-    }()
-
-    private static let shortDateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "de_DE")
-        formatter.timeZone = TimeZone(identifier: "Europe/Berlin")
-        formatter.dateFormat = "dd.MM."
-        return formatter
-    }()
-
-    private static let timeFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "de_DE")
-        formatter.timeZone = TimeZone(identifier: "Europe/Berlin")
-        formatter.dateFormat = "HH:mm"
-        return formatter
-    }()
-
-    private static let currencyFormatter: NumberFormatter = {
-        let formatter = NumberFormatter()
-        formatter.locale = Locale(identifier: "de_DE")
-        formatter.numberStyle = .currency
-        formatter.currencyCode = "EUR"
-        formatter.minimumFractionDigits = 2
-        formatter.maximumFractionDigits = 2
-        return formatter
     }()
 }

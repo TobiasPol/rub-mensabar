@@ -27,6 +27,46 @@ final class MensaPlanDecoderTests: XCTestCase {
         XCTAssertEqual(plan.days[0].meals[2].tags, ["VG"])
     }
 
+    func testToleratesMissingOptionalMealFields() throws {
+        let payload = """
+        {
+          "week_number": 1,
+          "start_date": "2027-01-04",
+          "end_date": "2027-01-08",
+          "days": [
+            { "date": "2027-01-04 00:00:00", "meals": [
+              { "id": "sparse", "title": " Tagessuppe ", "description": null, "icons": null, "category": null }
+            ] }
+          ]
+        }
+        """
+
+        let meal = try XCTUnwrap(MensaPlanDecoder.decode(Data(payload.utf8)).days.first?.meals.first)
+
+        XCTAssertEqual(meal.title, "Tagessuppe")
+        XCTAssertEqual(meal.subtitle, "")
+        XCTAssertEqual(meal.category, "Sonstiges")
+        XCTAssertEqual(meal.tags, [])
+        XCTAssertEqual(meal.allergens, [])
+        XCTAssertNil(meal.studentPrice)
+    }
+
+    func testRejectsMalformedDates() {
+        let payload = #"{"week_number": 1, "start_date": "soon", "end_date": "2027-01-08", "days": []}"#
+
+        XCTAssertThrowsError(try MensaPlanDecoder.decode(Data(payload.utf8))) { error in
+            XCTAssertEqual(error as? MensaPlanError, .invalidDate("soon"))
+        }
+    }
+
+    func testBuildsEncodedEndpointURL() throws {
+        let url = try XCTUnwrap(MensaPlanService.endpoint(canteenID: MensaCanteen.rubMensa.id))
+        XCTAssertEqual(url.absoluteString, "https://akafoe.studylife.org/api/meal-plans/week/current?canteen_id=a0f40678-5e86-4ae4-9ff1-ae1e9e25934b")
+
+        let escaped = try XCTUnwrap(MensaPlanService.endpoint(canteenID: "a&b c"))
+        XCTAssertEqual(escaped.query, "canteen_id=a%26b%20c")
+    }
+
     private static let samplePayload = """
     {
       "week_number": 23,
